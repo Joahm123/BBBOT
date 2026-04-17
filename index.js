@@ -23,7 +23,7 @@ async function getSheetsClient() {
   return google.sheets({ version: "v4", auth: client });
 }
 
-// Function to find user across all sheets
+// Function to find user across sheets, considering data starts at row 6
 async function findUserRow(sheets, username) {
   for (const rank of RANKS) {
     try {
@@ -36,13 +36,11 @@ async function findUserRow(sheets, username) {
       for (let i = 0; i < rows.length; i++) {
         const cellValue = rows[i][0];
         const sheetUsername = cellValue ? cellValue.toString().trim() : "";
-        // Debug: log each username
-        console.log(`Row ${i + 1} in ${rank.name}: "${sheetUsername}"`);
-        // Compare case-insensitive
+        console.log(`Row ${i + 6} in ${rank.name}: "${sheetUsername}"`);
         if (sheetUsername.toLowerCase() === username.trim().toLowerCase()) {
-          console.log(`Match at row ${i + 1} in ${rank.name}`);
+          console.log(`Match at sheet row ${i + 6}`);
           return {
-            rowIndex: i + 1,
+            rowIndex: i + 6, // Adjusted for data starting at row 6
             sheetName: rank.name,
             robloxUsername: sheetUsername,
             robloxId: (rows[i][1] || "").toString(),
@@ -59,7 +57,7 @@ async function findUserRow(sheets, username) {
   return null;
 }
 
-// Get full row data for a user
+// Get full row data for a user (rows D-H, starting at the found row)
 async function getFullRow(sheets, sheetName, rowIndex) {
   try {
     const res = await sheets.spreadsheets.values.get({
@@ -73,10 +71,10 @@ async function getFullRow(sheets, sheetName, rowIndex) {
   }
 }
 
-// Update points and events for a user
+// Update points and events
 async function updateUserData(sheets, sheetName, rowIndex, newPoints, newEvents) {
   try {
-    console.log(`Updating row ${rowIndex} in ${sheetName} with points=${newPoints}, events=${newEvents}`);
+    console.log(`Updating row ${rowIndex} in ${sheetName}: points=${newPoints}, events=${newEvents}`);
     await sheets.spreadsheets.values.update({
       spreadsheetId: SPREADSHEET_ID,
       range: `${sheetName}!F${rowIndex}:G${rowIndex}`,
@@ -115,7 +113,7 @@ async function deleteRow(sheets, sheetName, rowIndex) {
   }
 }
 
-// Append a row to a sheet
+// Append a new row
 async function appendToSheet(sheets, sheetName, rowData) {
   try {
     console.log(`Appending to sheet ${sheetName}:`, rowData);
@@ -140,7 +138,7 @@ function getEligibleRank(points) {
   return rank;
 }
 
-// Handle promotion logic
+// Handle promotion
 async function handlePromotion(sheets, user, newPoints) {
   const rank = getEligibleRank(newPoints);
   if (rank.name === user.sheetName) return null;
@@ -181,7 +179,6 @@ bot.on("messageCreate", async (message) => {
 
   const args = content.split(/\s+/);
 
-  // Promote command
   if (content.startsWith("!promote")) {
     const points = parseInt(args[args.length - 1]);
     const users = args.slice(1, -1);
@@ -218,7 +215,6 @@ bot.on("messageCreate", async (message) => {
     return;
   }
 
-  // Event command
   if (content.startsWith("!event")) {
     const users = args.slice(1);
     if (users.length === 0) {
@@ -252,7 +248,6 @@ bot.on("messageCreate", async (message) => {
     return;
   }
 
-  // Points command
   if (content.startsWith("!points")) {
     const username = args[1];
     if (!username) {
