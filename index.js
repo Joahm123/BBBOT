@@ -1,5 +1,8 @@
+Index · JS
+Copy
+
 import "dotenv/config";
-import { Client, GatewayIntentBits } from "discord.js";
+import { Client, GatewayIntentBits, PermissionsBitField } from "discord.js";
 import { google } from "googleapis";
  
 // Initialize Google Sheets API client
@@ -32,10 +35,10 @@ async function findUserRow(sheets, username) {
         range: `${rank.name}!D:D`,
       });
       const rows = res.data.values || [];
-      for (let i = 5; i < rows.length; i++) { // skip rows 1-5 (index 0-4)
+      for (let i = 5; i < rows.length; i++) {
         const sheetUsername = rows[i][0]?.toString().trim() || "";
         if (sheetUsername.toLowerCase() === username.trim().toLowerCase()) {
-          const fullRow = await getFullRow(sheets, rank.name, i + 1); // i+1 = 1-based sheet row
+          const fullRow = await getFullRow(sheets, rank.name, i + 1);
           return {
             rowIndex: i + 1,
             sheetName: rank.name,
@@ -122,15 +125,16 @@ function getEligibleRank(points) {
   return rank;
 }
  
-// Handle promotion
+// Handle promotion — only moves user if they've crossed a rank threshold
 async function handlePromotion(sheets, user, newPoints) {
-  const rank = getEligibleRank(newPoints);
-  if (rank.name === user.sheetName) return null;
+  const newRank = getEligibleRank(newPoints);
+  const oldRank = getEligibleRank(user.currentPoints);
+  if (newRank.name === oldRank.name) return null;
   const fullRow = await getFullRow(sheets, user.sheetName, user.rowIndex);
   fullRow[2] = newPoints;
   await deleteRow(sheets, user.sheetName, user.rowIndex);
-  await appendToSheet(sheets, rank.name, fullRow);
-  return rank.name;
+  await appendToSheet(sheets, newRank.name, fullRow);
+  return newRank.name;
 }
  
 const bot = new Client({
@@ -156,7 +160,7 @@ bot.on("messageCreate", async (message) => {
     return message.reply(`
 **Commands:**
 !help - Show this help message
-!promote <user(s)> <points> - Promote users
+!promote <user(s)> <points> - Promote users (Moderator only)
 !event <user(s)> - Log an event for users
 !points <user> - Show user's points and rank
 !check <user> - Check a user's rank and points
@@ -164,6 +168,11 @@ bot.on("messageCreate", async (message) => {
   }
  
   if (content.startsWith("!promote")) {
+    // Check for Moderator permission
+    if (!message.member.permissions.has(PermissionsBitField.Flags.ModerateMembers)) {
+      return message.reply("You need the **Moderator** permission to use this command.");
+    }
+ 
     const points = parseInt(args[args.length - 1]);
     const users = args.slice(1, -1);
     if (users.length === 0 || isNaN(points) || points <= 0) {
@@ -182,12 +191,14 @@ bot.on("messageCreate", async (message) => {
         const newPoints = user.currentPoints + points;
         const newRank = await handlePromotion(sheets, user, newPoints);
         if (newRank) {
-          results.push(`${username} - promoted to ${newRank}! Points: ${newPoints}`);
+          results.push(`${username} - promoted to **${newRank}**!`);
         } else {
           await updateUserData(sheets, user.sheetName, user.rowIndex, newPoints, user.currentEvents);
           const currentIdx = RANKS.findIndex(r => r.name === user.sheetName);
           const nextRank = RANKS[currentIdx + 1];
-          const progressMsg = nextRank ? ` (${nextRank.threshold - newPoints} points until ${nextRank.name})` : " (max rank)";
+          const progressMsg = nextRank
+            ? ` (${nextRank.threshold - newPoints} points until ${nextRank.name})`
+            : " (max rank)";
           results.push(`${username} [${user.sheetName}] - Points: ${newPoints}${progressMsg}`);
         }
       } catch (err) {
@@ -283,3 +294,4 @@ bot.on("messageCreate", async (message) => {
  
 // Log in your bot
 bot.login(process.env.DISCORD_TOKEN);
+ 
