@@ -1,14 +1,14 @@
 import "dotenv/config";
 import { Client, GatewayIntentBits } from "discord.js";
 import { google } from "googleapis";
-
+ 
 // Initialize Google Sheets API client
 const auth = new google.auth.GoogleAuth({
   credentials: JSON.parse(process.env.GOOGLE_CREDENTIALS),
   scopes: ["https://www.googleapis.com/auth/spreadsheets"],
 });
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
-
+ 
 // Define ranks with exact sheet names
 const RANKS = [
   { name: "PRIVATE", threshold: 0 },
@@ -16,13 +16,13 @@ const RANKS = [
   { name: "PRIVATE FIRST CLASS", threshold: 20 },
   { name: "LANCE CORPORAL", threshold: 50 },
 ];
-
+ 
 // Function to get Google Sheets client
 async function getSheetsClient() {
   const client = await auth.getClient();
   return google.sheets({ version: "v4", auth: client });
 }
-
+ 
 // Function to find user across sheets, considering data starts at row 6
 async function findUserRow(sheets, username) {
   for (const rank of RANKS) {
@@ -32,12 +32,12 @@ async function findUserRow(sheets, username) {
         range: `${rank.name}!D:D`,
       });
       const rows = res.data.values || [];
-      for (let i = 0; i < rows.length; i++) {
+      for (let i = 5; i < rows.length; i++) { // skip rows 1-5 (index 0-4)
         const sheetUsername = rows[i][0]?.toString().trim() || "";
         if (sheetUsername.toLowerCase() === username.trim().toLowerCase()) {
-          const fullRow = await getFullRow(sheets, rank.name, i + 6);
+          const fullRow = await getFullRow(sheets, rank.name, i + 1); // i+1 = 1-based sheet row
           return {
-            rowIndex: i + 6,
+            rowIndex: i + 1,
             sheetName: rank.name,
             robloxUsername: sheetUsername,
             robloxId: fullRow[1] || "",
@@ -52,7 +52,7 @@ async function findUserRow(sheets, username) {
   }
   return null;
 }
-
+ 
 // Get full row data for a user (columns D-H)
 async function getFullRow(sheets, sheetName, rowIndex) {
   const res = await sheets.spreadsheets.values.get({
@@ -61,7 +61,7 @@ async function getFullRow(sheets, sheetName, rowIndex) {
   });
   return res.data.values ? res.data.values[0] : [];
 }
-
+ 
 // Update points and events
 async function updateUserData(sheets, sheetName, rowIndex, newPoints, newEvents) {
   try {
@@ -75,7 +75,7 @@ async function updateUserData(sheets, sheetName, rowIndex, newPoints, newEvents)
     console.error(`Error updating row ${rowIndex} in ${sheetName}:`, err.message);
   }
 }
-
+ 
 // Delete a row
 async function deleteRow(sheets, sheetName, rowIndex) {
   try {
@@ -101,7 +101,7 @@ async function deleteRow(sheets, sheetName, rowIndex) {
     console.error(`Error deleting row ${rowIndex} in ${sheetName}:`, err.message);
   }
 }
-
+ 
 // Append a new row
 async function appendToSheet(sheets, sheetName, rowData) {
   await sheets.spreadsheets.values.append({
@@ -112,7 +112,7 @@ async function appendToSheet(sheets, sheetName, rowData) {
     requestBody: { values: [rowData] },
   });
 }
-
+ 
 // Determine rank based on points
 function getEligibleRank(points) {
   let rank = RANKS[0];
@@ -121,7 +121,7 @@ function getEligibleRank(points) {
   }
   return rank;
 }
-
+ 
 // Handle promotion
 async function handlePromotion(sheets, user, newPoints) {
   const rank = getEligibleRank(newPoints);
@@ -132,7 +132,7 @@ async function handlePromotion(sheets, user, newPoints) {
   await appendToSheet(sheets, rank.name, fullRow);
   return rank.name;
 }
-
+ 
 const bot = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -140,18 +140,18 @@ const bot = new Client({
     GatewayIntentBits.MessageContent,
   ],
 });
-
+ 
 bot.on("ready", () => {
   console.log(`Bot is online as ${bot.user.tag}`);
 });
-
+ 
 // Main message handler
 bot.on("messageCreate", async (message) => {
   if (message.author.bot) return;
-
+ 
   const content = message.content.trim();
   const args = content.split(/\s+/);
-
+ 
   if (content === "!help") {
     return message.reply(`
 **Commands:**
@@ -162,7 +162,7 @@ bot.on("messageCreate", async (message) => {
 !check <user> - Check a user's rank and points
 `);
   }
-
+ 
   if (content.startsWith("!promote")) {
     const points = parseInt(args[args.length - 1]);
     const users = args.slice(1, -1);
@@ -171,7 +171,7 @@ bot.on("messageCreate", async (message) => {
     }
     const sheets = await getSheetsClient();
     const results = [];
-
+ 
     for (const username of users) {
       try {
         const user = await findUserRow(sheets, username);
@@ -197,7 +197,7 @@ bot.on("messageCreate", async (message) => {
     message.reply("Promotion results:\n" + results.join("\n"));
     return;
   }
-
+ 
   if (content.startsWith("!event")) {
     const users = args.slice(1);
     if (users.length === 0) {
@@ -205,7 +205,7 @@ bot.on("messageCreate", async (message) => {
     }
     const sheets = await getSheetsClient();
     const results = [];
-
+ 
     for (const username of users) {
       try {
         const user = await findUserRow(sheets, username);
@@ -229,7 +229,7 @@ bot.on("messageCreate", async (message) => {
     message.reply("Event log results:\n" + results.join("\n"));
     return;
   }
-
+ 
   if (content.startsWith("!points")) {
     const username = args[1];
     if (!username) {
@@ -254,8 +254,7 @@ bot.on("messageCreate", async (message) => {
     }
     return;
   }
-
-  // New command: !check
+ 
   if (content.startsWith("!check")) {
     const username = args.slice(1).join(" ");
     if (!username) {
@@ -281,6 +280,6 @@ bot.on("messageCreate", async (message) => {
     return;
   }
 });
-
+ 
 // Log in your bot
 bot.login(process.env.DISCORD_TOKEN);
