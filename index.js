@@ -185,7 +185,7 @@ bot.on("messageCreate", async (message) => {
 
   for (const username of args) {
     try {
-      const user = await findUserRow(sheets, username);
+      const user = await findUserRow(sheets, roblox_username);
       if (!user) { results.push(`${username} - not found in roster`); continue; }
       const newPoints = user.currentPoints + 1;
       const newEvents = user.currentEvents + 1;
