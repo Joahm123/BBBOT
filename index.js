@@ -22,6 +22,7 @@ async function getSheetsClient() {
 }
 
 async function findUserRow(sheets, username) {
+  // Search through all ranks/sheets for the username
   for (const rank of RANKS) {
     try {
       const res = await sheets.spreadsheets.values.get({
@@ -29,12 +30,15 @@ async function findUserRow(sheets, username) {
         range: `${rank.name}!D:G`,
       });
       const rows = res.data.values || [];
+      console.log(`Searching in sheet: ${rank.name}, fetched ${rows.length} rows`);
       for (let i = 0; i < rows.length; i++) {
-        if (rows[i][0] && rows[i][0].toLowerCase() === username.toLowerCase()) {
+        const sheetUsername = rows[i][0] ? rows[i][0].toString().trim() : "";
+        console.log(`Row ${i + 1}: "${sheetUsername}"`);
+        if (sheetUsername.toLowerCase() === username.trim().toLowerCase()) {
           return {
             rowIndex: i + 1,
             sheetName: rank.name,
-            robloxUsername: rows[i][0],
+            robloxUsername: sheetUsername,
             robloxId: rows[i][1] || "",
             currentPoints: parseInt(rows[i][2]) || 0,
             currentEvents: parseInt(rows[i][3]) || 0,
@@ -168,7 +172,11 @@ bot.on("messageCreate", async (message) => {
   for (const username of usernames) {
     try {
       const user = await findUserRow(sheets, username);
-      if (!user) { results.push(`${username} - not found in roster`); continue; }
+      if (!user) { 
+        console.log(`User "${username}" not found in roster`);
+        results.push(`${username} - not found in roster`);
+        continue; 
+      }
       const newPoints = user.currentPoints + pointsToAdd;
       const promotedTo = await handlePromotion(sheets, user, newPoints);
       if (promotedTo) {
@@ -205,7 +213,11 @@ bot.on("messageCreate", async (message) => {
   for (const username of args) {
     try {
       const user = await findUserRow(sheets, username);
-      if (!user) { results.push(`${username} - not found in roster`); continue; }
+      if (!user) { 
+        console.log(`User "${username}" not found in roster`);
+        results.push(`${username} - not found in roster`);
+        continue; 
+      }
       const newPoints = user.currentPoints + 1;
       const newEvents = user.currentEvents + 1;
       const promotedTo = await handlePromotion(sheets, user, newPoints);
