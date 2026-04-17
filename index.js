@@ -32,20 +32,17 @@ async function findUserRow(sheets, username) {
         range: `${rank.name}!D:D`,
       });
       const rows = res.data.values || [];
-      console.log(`Searching in sheet: ${rank.name}, fetched ${rows.length} rows`);
       for (let i = 0; i < rows.length; i++) {
-        const cellValue = rows[i][0];
-        const sheetUsername = cellValue ? cellValue.toString().trim() : "";
-        console.log(`Row ${i + 6} in ${rank.name}: "${sheetUsername}"`);
+        const sheetUsername = rows[i][0]?.toString().trim() || "";
         if (sheetUsername.toLowerCase() === username.trim().toLowerCase()) {
-          console.log(`Match at sheet row ${i + 6}`);
+          const fullRow = await getFullRow(sheets, rank.name, i + 6);
           return {
-            rowIndex: i + 6, // Adjusted for data starting at row 6
+            rowIndex: i + 6,
             sheetName: rank.name,
             robloxUsername: sheetUsername,
-            robloxId: (rows[i][1] || "").toString(),
-            currentPoints: parseInt(rows[i][2]) || 0,
-            currentEvents: parseInt(rows[i][3]) || 0,
+            robloxId: fullRow[1] || "",
+            currentPoints: parseInt(fullRow[2]) || 0,
+            currentEvents: parseInt(fullRow[3]) || 0,
           };
         }
       }
@@ -53,28 +50,21 @@ async function findUserRow(sheets, username) {
       console.error(`Error fetching sheet ${rank.name}:`, err.message);
     }
   }
-  console.log(`User "${username}" not found in any sheet`);
   return null;
 }
 
-// Get full row data for a user (rows D-H, starting at the found row)
+// Get full row data for a user (columns D-H)
 async function getFullRow(sheets, sheetName, rowIndex) {
-  try {
-    const res = await sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: `${sheetName}!D${rowIndex}:H${rowIndex}`,
-    });
-    return res.data.values ? res.data.values[0] : [];
-  } catch (err) {
-    console.error(`Error fetching full row ${rowIndex} in ${sheetName}:`, err.message);
-    throw err;
-  }
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `${sheetName}!D${rowIndex}:H${rowIndex}`,
+  });
+  return res.data.values ? res.data.values[0] : [];
 }
 
 // Update points and events
 async function updateUserData(sheets, sheetName, rowIndex, newPoints, newEvents) {
   try {
-    console.log(`Updating row ${rowIndex} in ${sheetName}: points=${newPoints}, events=${newEvents}`);
     await sheets.spreadsheets.values.update({
       spreadsheetId: SPREADSHEET_ID,
       range: `${sheetName}!F${rowIndex}:G${rowIndex}`,
@@ -107,7 +97,6 @@ async function deleteRow(sheets, sheetName, rowIndex) {
         }],
       },
     });
-    console.log(`Deleted row ${rowIndex} in ${sheetName}`);
   } catch (err) {
     console.error(`Error deleting row ${rowIndex} in ${sheetName}:`, err.message);
   }
@@ -115,18 +104,13 @@ async function deleteRow(sheets, sheetName, rowIndex) {
 
 // Append a new row
 async function appendToSheet(sheets, sheetName, rowData) {
-  try {
-    console.log(`Appending to sheet ${sheetName}:`, rowData);
-    await sheets.spreadsheets.values.append({
-      spreadsheetId: SPREADSHEET_ID,
-      range: `${sheetName}!D:H`,
-      valueInputOption: "RAW",
-      insertDataOption: "INSERT_ROWS",
-      requestBody: { values: [rowData] },
-    });
-  } catch (err) {
-    console.error(`Error appending to sheet ${sheetName}:`, err.message);
-  }
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `${sheetName}!D:H`,
+    valueInputOption: "RAW",
+    insertDataOption: "INSERT_ROWS",
+    requestBody: { values: [rowData] },
+  });
 }
 
 // Determine rank based on points
@@ -143,7 +127,7 @@ async function handlePromotion(sheets, user, newPoints) {
   const rank = getEligibleRank(newPoints);
   if (rank.name === user.sheetName) return null;
   const fullRow = await getFullRow(sheets, user.sheetName, user.rowIndex);
-  fullRow[2] = newPoints; // update points
+  fullRow[2] = newPoints;
   await deleteRow(sheets, user.sheetName, user.rowIndex);
   await appendToSheet(sheets, rank.name, fullRow);
   return rank.name;
@@ -179,7 +163,6 @@ bot.on("messageCreate", async (message) => {
 `);
   }
 
-  // Promote
   if (content.startsWith("!promote")) {
     const points = parseInt(args[args.length - 1]);
     const users = args.slice(1, -1);
@@ -208,7 +191,6 @@ bot.on("messageCreate", async (message) => {
           results.push(`${username} [${user.sheetName}] - Points: ${newPoints}${progressMsg}`);
         }
       } catch (err) {
-        console.error(`Error processing ${username}:`, err);
         results.push(`${username} - error`);
       }
     }
@@ -216,7 +198,6 @@ bot.on("messageCreate", async (message) => {
     return;
   }
 
-  // Event
   if (content.startsWith("!event")) {
     const users = args.slice(1);
     if (users.length === 0) {
@@ -242,7 +223,6 @@ bot.on("messageCreate", async (message) => {
           results.push(`${username} [${user.sheetName}] - Events: ${newEvents}, Points: ${newPoints}`);
         }
       } catch (err) {
-        console.error(`Error processing ${username}:`, err);
         results.push(`${username} - error`);
       }
     }
@@ -250,7 +230,6 @@ bot.on("messageCreate", async (message) => {
     return;
   }
 
-  // Points
   if (content.startsWith("!points")) {
     const username = args[1];
     if (!username) {
@@ -271,13 +250,12 @@ bot.on("messageCreate", async (message) => {
         `${username} [${user.sheetName}]\nPoints: ${user.currentPoints}\nEvents: ${user.currentEvents}${progressMsg}`
       );
     } catch (err) {
-      console.error(`Error fetching points for ${username}:`, err);
       message.reply("Error fetching points.");
     }
     return;
   }
 
-  // Check user rank and points
+  // New command: !check
   if (content.startsWith("!check")) {
     const username = args.slice(1).join(" ");
     if (!username) {
@@ -298,7 +276,6 @@ bot.on("messageCreate", async (message) => {
         `${username} [${user.sheetName}]\nPoints: ${user.currentPoints}\nEvents: ${user.currentEvents}${progressMsg}`
       );
     } catch (err) {
-      console.error(`Error fetching check for ${username}:`, err);
       message.reply("Error retrieving user data.");
     }
     return;
