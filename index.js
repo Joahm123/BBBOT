@@ -161,11 +161,12 @@ bot.on("ready", () => {
   console.log(`Bot is online as ${bot.user.tag}`);
 });
 
-// Main command handler
+// Main message handler
 bot.on("messageCreate", async (message) => {
   if (message.author.bot) return;
 
   const content = message.content.trim();
+  const args = content.split(/\s+/);
 
   if (content === "!help") {
     return message.reply(`
@@ -174,11 +175,11 @@ bot.on("messageCreate", async (message) => {
 !promote <user(s)> <points> - Promote users
 !event <user(s)> - Log an event for users
 !points <user> - Show user's points and rank
+!check <user> - Check a user's rank and points
 `);
   }
 
-  const args = content.split(/\s+/);
-
+  // Promote
   if (content.startsWith("!promote")) {
     const points = parseInt(args[args.length - 1]);
     const users = args.slice(1, -1);
@@ -215,6 +216,7 @@ bot.on("messageCreate", async (message) => {
     return;
   }
 
+  // Event
   if (content.startsWith("!event")) {
     const users = args.slice(1);
     if (users.length === 0) {
@@ -248,6 +250,7 @@ bot.on("messageCreate", async (message) => {
     return;
   }
 
+  // Points
   if (content.startsWith("!points")) {
     const username = args[1];
     if (!username) {
@@ -274,16 +277,31 @@ bot.on("messageCreate", async (message) => {
     return;
   }
 
-  // Test user command for debugging
-  if (content.startsWith("!testuser")) {
-    const testUsername = args.slice(1).join(" ");
-    const sheets = await getSheetsClient();
-    const user = await findUserRow(sheets, testUsername);
-    if (user) {
-      message.reply(`Found at row ${user.rowIndex} in sheet ${user.sheetName}`);
-    } else {
-      message.reply(`User "${testUsername}" not found`);
+  // Check user rank and points
+  if (content.startsWith("!check")) {
+    const username = args.slice(1).join(" ");
+    if (!username) {
+      return message.reply("Usage: !check <username>");
     }
+    try {
+      const sheets = await getSheetsClient();
+      const user = await findUserRow(sheets, username);
+      if (!user) {
+        return message.reply(`Could not find user "${username}" in the roster.`);
+      }
+      const currentIdx = RANKS.findIndex(r => r.name === user.sheetName);
+      const nextRank = RANKS[currentIdx + 1];
+      const progressMsg = nextRank
+        ? `\n${nextRank.threshold - user.currentPoints} points until ${nextRank.name}`
+        : "\nMax rank reached";
+      message.reply(
+        `${username} [${user.sheetName}]\nPoints: ${user.currentPoints}\nEvents: ${user.currentEvents}${progressMsg}`
+      );
+    } catch (err) {
+      console.error(`Error fetching check for ${username}:`, err);
+      message.reply("Error retrieving user data.");
+    }
+    return;
   }
 });
 
