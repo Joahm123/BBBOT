@@ -10,10 +10,10 @@ const auth = new google.auth.GoogleAuth({
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
 
 const RANKS = [
-  { name: "PRIVATE",              threshold: 0  },
+  { name: "PRIVATE", threshold: 0 },
   { name: "PRIVATE SECOND CLASS", threshold: 10 },
-  { name: "PRIVATE FIRST CLASS",  threshold: 20 },
-  { name: "LANCE CORPORAL",       threshold: 50 },
+  { name: "PRIVATE FIRST CLASS", threshold: 20 },
+  { name: "LANCE CORPORAL", threshold: 50 },
 ];
 
 async function getSheetsClient() {
@@ -49,55 +49,74 @@ async function findUserRow(sheets, username) {
 }
 
 async function getFullRow(sheets, sheetName, rowIndex) {
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SPREADSHEET_ID,
-    range: `${sheetName}!D${rowIndex}:H${rowIndex}`,
-  });
-  return res.data.values ? res.data.values[0] : [];
+  try {
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${sheetName}!D${rowIndex}:H${rowIndex}`,
+    });
+    return res.data.values ? res.data.values[0] : [];
+  } catch (err) {
+    console.error(`Error fetching full row ${rowIndex} in ${sheetName}:`, err.message);
+    throw err;
+  }
 }
 
 async function updateUserData(sheets, sheetName, rowIndex, newPoints, newEvents) {
-  await sheets.spreadsheets.values.update({
-    spreadsheetId: SPREADSHEET_ID,
-    range: `${sheetName}!F${rowIndex}:G${rowIndex}`,
-    valueInputOption: "RAW",
-    requestBody: { values: [[newPoints, newEvents]] },
-  });
+  try {
+    console.log(`Updating row ${rowIndex} in ${sheetName} with points: ${newPoints}, events: ${newEvents}`);
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${sheetName}!F${rowIndex}:G${rowIndex}`,
+      valueInputOption: "RAW",
+      requestBody: { values: [[newPoints, newEvents]] },
+    });
+  } catch (err) {
+    console.error(`Error updating row ${rowIndex} in sheet ${sheetName}:`, err.message);
+    throw err;
+  }
 }
 
 async function deleteRow(sheets, sheetName, rowIndex) {
-  const spreadsheet = await sheets.spreadsheets.get({
-    spreadsheetId: SPREADSHEET_ID,
-  });
-  const sheet = spreadsheet.data.sheets.find(
-    s => s.properties.title === sheetName
-  );
-  if (!sheet) throw new Error(`Sheet "${sheetName}" not found`);
-  await sheets.spreadsheets.batchUpdate({
-    spreadsheetId: SPREADSHEET_ID,
-    requestBody: {
-      requests: [{
-        deleteDimension: {
-          range: {
-            sheetId: sheet.properties.sheetId,
-            dimension: "ROWS",
-            startIndex: rowIndex - 1,
-            endIndex: rowIndex,
+  try {
+    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
+    const sheet = spreadsheet.data.sheets.find(s => s.properties.title === sheetName);
+    if (!sheet) throw new Error(`Sheet "${sheetName}" not found`);
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId: SPREADSHEET_ID,
+      requestBody: {
+        requests: [{
+          deleteDimension: {
+            range: {
+              sheetId: sheet.properties.sheetId,
+              dimension: "ROWS",
+              startIndex: rowIndex - 1,
+              endIndex: rowIndex,
+            },
           },
-        },
-      }],
-    },
-  });
+        }],
+      },
+    });
+    console.log(`Deleted row ${rowIndex} in sheet ${sheetName}`);
+  } catch (err) {
+    console.error(`Error deleting row ${rowIndex} in ${sheetName}:`, err.message);
+    throw err;
+  }
 }
 
 async function appendToSheet(sheets, sheetName, rowData) {
-  await sheets.spreadsheets.values.append({
-    spreadsheetId: SPREADSHEET_ID,
-    range: `${sheetName}!D:H`,
-    valueInputOption: "RAW",
-    insertDataOption: "INSERT_ROWS",
-    requestBody: { values: [rowData] },
-  });
+  try {
+    console.log(`Appending to sheet ${sheetName}:`, rowData);
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${sheetName}!D:H`,
+      valueInputOption: "RAW",
+      insertDataOption: "INSERT_ROWS",
+      requestBody: { values: [rowData] },
+    });
+  } catch (err) {
+    console.error(`Error appending to sheet ${sheetName}:`, err.message);
+    throw err;
+  }
 }
 
 function getEligibleRank(points) {
@@ -112,7 +131,7 @@ async function handlePromotion(sheets, user, newPoints) {
   const eligibleRank = getEligibleRank(newPoints);
   if (eligibleRank.name === user.sheetName) return null;
   const fullRow = await getFullRow(sheets, user.sheetName, user.rowIndex);
-  fullRow[2] = newPoints;
+  fullRow[2] = newPoints; // assuming position 2 is points
   await deleteRow(sheets, user.sheetName, user.rowIndex);
   await appendToSheet(sheets, eligibleRank.name, fullRow);
   return eligibleRank.name;
@@ -162,7 +181,7 @@ bot.on("messageCreate", async (message) => {
         results.push(`${username} [${user.sheetName}] - Points: ${newPoints}${progressMsg}`);
       }
     } catch (err) {
-      console.error(err);
+      console.error(`Error processing ${username}:`, err);
       results.push(`${username} - error updating`);
     }
   }
@@ -185,7 +204,7 @@ bot.on("messageCreate", async (message) => {
 
   for (const username of args) {
     try {
-      const user = await findUserRow(sheets, roblox_username);
+      const user = await findUserRow(sheets, username);
       if (!user) { results.push(`${username} - not found in roster`); continue; }
       const newPoints = user.currentPoints + 1;
       const newEvents = user.currentEvents + 1;
@@ -197,7 +216,7 @@ bot.on("messageCreate", async (message) => {
         results.push(`${username} [${user.sheetName}] - Events: ${newEvents}, Points: ${newPoints}`);
       }
     } catch (err) {
-      console.error(err);
+      console.error(`Error processing ${username}:`, err);
       results.push(`${username} - error updating`);
     }
   }
@@ -227,7 +246,7 @@ bot.on("messageCreate", async (message) => {
       `${robloxUsername} [${user.sheetName}]\nPoints: ${user.currentPoints}\nEvents: ${user.currentEvents}${progressMsg}`
     );
   } catch (err) {
-    console.error(err);
+    console.error(`Error fetching points for ${robloxUsername}:`, err);
     message.reply("Something went wrong.");
   }
 });
