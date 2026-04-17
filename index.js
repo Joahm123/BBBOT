@@ -9,7 +9,7 @@ const auth = new google.auth.GoogleAuth({
 });
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
 
-// Rank thresholds
+// Ranks thresholds
 const RANKS = [
   { name: "PRIVATE", threshold: 0 },
   { name: "PRIVATE SECOND CLASS", threshold: 10 },
@@ -17,13 +17,13 @@ const RANKS = [
   { name: "LANCE CORPORAL", threshold: 50 },
 ];
 
-// Function to get Sheets client
+// Get Google Sheets client
 async function getSheetsClient() {
   const client = await auth.getClient();
   return google.sheets({ version: "v4", auth: client });
 }
 
-// Find user row in sheets
+// Search for user in all sheets
 async function findUserRow(sheets, username) {
   for (const rank of RANKS) {
     try {
@@ -37,6 +37,7 @@ async function findUserRow(sheets, username) {
         const cellValue = rows[i][0];
         const sheetUsername = cellValue ? cellValue.toString().trim() : "";
         console.log(`Row ${i + 1} in ${rank.name}: "${sheetUsername}"`);
+        console.log(`Comparing with input: "${username.trim().toLowerCase()}"`);
         if (sheetUsername.toLowerCase() === username.trim().toLowerCase()) {
           console.log(`Match found at row ${i + 1} in sheet ${rank.name}`);
           return {
@@ -57,7 +58,7 @@ async function findUserRow(sheets, username) {
   return null;
 }
 
-// Get full row data
+// Fetch full row data
 async function getFullRow(sheets, sheetName, rowIndex) {
   try {
     const res = await sheets.spreadsheets.values.get({
@@ -74,7 +75,7 @@ async function getFullRow(sheets, sheetName, rowIndex) {
 // Update user points and events
 async function updateUserData(sheets, sheetName, rowIndex, newPoints, newEvents) {
   try {
-    console.log(`Updating row ${rowIndex} in ${sheetName} with points: ${newPoints}, events: ${newEvents}`);
+    console.log(`Updating row ${rowIndex} in ${sheetName}: points=${newPoints}, events=${newEvents}`);
     await sheets.spreadsheets.values.update({
       spreadsheetId: SPREADSHEET_ID,
       range: `${sheetName}!F${rowIndex}:G${rowIndex}`,
@@ -82,7 +83,7 @@ async function updateUserData(sheets, sheetName, rowIndex, newPoints, newEvents)
       requestBody: { values: [[newPoints, newEvents]] },
     });
   } catch (err) {
-    console.error(`Error updating row ${rowIndex} in sheet ${sheetName}:`, err.message);
+    console.error(`Error updating row ${rowIndex} in ${sheetName}:`, err.message);
     throw err;
   }
 }
@@ -115,10 +116,10 @@ async function deleteRow(sheets, sheetName, rowIndex) {
   }
 }
 
-// Append a new row
+// Append a row
 async function appendToSheet(sheets, sheetName, rowData) {
   try {
-    console.log(`Appending to sheet ${sheetName}:`, rowData);
+    console.log(`Appending to sheet: ${sheetName} data: ${rowData}`);
     await sheets.spreadsheets.values.append({
       spreadsheetId: SPREADSHEET_ID,
       range: `${sheetName}!D:H`,
@@ -132,24 +133,24 @@ async function appendToSheet(sheets, sheetName, rowData) {
   }
 }
 
-// Determine eligible rank based on points
+// Determine rank based on points
 function getEligibleRank(points) {
-  let eligible = RANKS[0];
-  for (const rank of RANKS) {
-    if (points >= rank.threshold) eligible = rank;
+  let rank = RANKS[0];
+  for (const r of RANKS) {
+    if (points >= r.threshold) rank = r;
   }
-  return eligible;
+  return rank;
 }
 
-// Handle promotion logic
+// Handle promotion
 async function handlePromotion(sheets, user, newPoints) {
-  const eligibleRank = getEligibleRank(newPoints);
-  if (eligibleRank.name === user.sheetName) return null;
+  const rank = getEligibleRank(newPoints);
+  if (rank.name === user.sheetName) return null;
   const fullRow = await getFullRow(sheets, user.sheetName, user.rowIndex);
-  fullRow[2] = newPoints; // points position
+  fullRow[2] = newPoints; // points
   await deleteRow(sheets, user.sheetName, user.rowIndex);
-  await appendToSheet(sheets, eligibleRank.name, fullRow);
-  return eligibleRank.name;
+  await appendToSheet(sheets, rank.name, fullRow);
+  return rank.name;
 }
 
 const bot = new Client({
@@ -164,36 +165,33 @@ bot.on("ready", () => {
   console.log(`Bot is online as ${bot.user.tag}`);
 });
 
-// Single messageCreate handler for all commands
+// Main message handler
 bot.on("messageCreate", async (message) => {
   if (message.author.bot) return;
-
   const content = message.content.trim();
 
-  // Help command
   if (content === "!help") {
     return message.reply(`
-**Available Commands:**
+**Commands:**
 !help - Show this help message
-!promote <username1> <username2> ... <points> - Promote users by adding points
-!event <username1> <username2> ... - Log an event for users
-!points <username> - Show points and rank info for a user
+!promote <user(s)> <points> - Promote users
+!event <user(s)> - Log an event for users
+!points <user> - Show user's points and rank
 `);
   }
 
   const args = content.split(/\s+/);
 
-  // Promote command
   if (content.startsWith("!promote")) {
-    const pointsToAdd = parseInt(args[args.length - 1]);
-    const usernames = args.slice(1, -1);
-    if (usernames.length === 0 || isNaN(pointsToAdd) || pointsToAdd <= 0) {
-      return message.reply("Usage: !promote <username1> <username2> ... <points>");
+    const points = parseInt(args[args.length - 1]);
+    const users = args.slice(1, -1);
+    if (users.length === 0 || isNaN(points) || points <= 0) {
+      return message.reply("Usage: !promote <user(s)> <points>");
     }
     const sheets = await getSheetsClient();
     const results = [];
 
-    for (const username of usernames) {
+    for (const username of users) {
       try {
         const user = await findUserRow(sheets, username);
         if (!user) {
@@ -201,36 +199,35 @@ bot.on("messageCreate", async (message) => {
           results.push(`${username} - not found in roster`);
           continue;
         }
-        const newPoints = user.currentPoints + pointsToAdd;
-        const promotedTo = await handlePromotion(sheets, user, newPoints);
-        if (promotedTo) {
-          results.push(`${username} - promoted to ${promotedTo}! Points: ${newPoints}`);
+        const newPoints = user.currentPoints + points;
+        const newRank = await handlePromotion(sheets, user, newPoints);
+        if (newRank) {
+          results.push(`${username} - promoted to ${newRank}! Points: ${newPoints}`);
         } else {
           await updateUserData(sheets, user.sheetName, user.rowIndex, newPoints, user.currentEvents);
-          const currentRankIndex = RANKS.findIndex(r => r.name === user.sheetName);
-          const nextRank = RANKS[currentRankIndex + 1];
-          const progressMsg = nextRank ? ` (${nextRank.threshold - newPoints} points until ${nextRank.name})` : " (max rank reached)";
+          const currentRankIdx = RANKS.findIndex(r => r.name === user.sheetName);
+          const nextRank = RANKS[currentRankIdx + 1];
+          const progressMsg = nextRank ? ` (${nextRank.threshold - newPoints} points until ${nextRank.name})` : " (max rank)";
           results.push(`${username} [${user.sheetName}] - Points: ${newPoints}${progressMsg}`);
         }
       } catch (err) {
         console.error(`Error processing ${username}:`, err);
-        results.push(`${username} - error updating`);
+        results.push(`${username} - error`);
       }
     }
-    message.reply("Promote results:\n" + results.join("\n"));
+    message.reply("Promotion results:\n" + results.join("\n"));
     return;
   }
 
-  // Event command
   if (content.startsWith("!event")) {
-    const eventUsers = args.slice(1);
-    if (eventUsers.length === 0) {
-      return message.reply("Usage: !event <username1> <username2> ...");
+    const users = args.slice(1);
+    if (users.length === 0) {
+      return message.reply("Usage: !event <user(s)>");
     }
     const sheets = await getSheetsClient();
     const results = [];
 
-    for (const username of eventUsers) {
+    for (const username of users) {
       try {
         const user = await findUserRow(sheets, username);
         if (!user) {
@@ -240,36 +237,35 @@ bot.on("messageCreate", async (message) => {
         }
         const newPoints = user.currentPoints + 1;
         const newEvents = user.currentEvents + 1;
-        const promotedTo = await handlePromotion(sheets, user, newPoints);
-        if (promotedTo) {
-          results.push(`${username} - promoted to ${promotedTo}! Points: ${newPoints}, Events: ${newEvents}`);
+        const newRank = await handlePromotion(sheets, user, newPoints);
+        if (newRank) {
+          results.push(`${username} - promoted to ${newRank}! Points: ${newPoints}, Events: ${newEvents}`);
         } else {
           await updateUserData(sheets, user.sheetName, user.rowIndex, newPoints, newEvents);
           results.push(`${username} [${user.sheetName}] - Events: ${newEvents}, Points: ${newPoints}`);
         }
       } catch (err) {
         console.error(`Error processing ${username}:`, err);
-        results.push(`${username} - error updating`);
+        results.push(`${username} - error`);
       }
     }
     message.reply("Event log results:\n" + results.join("\n"));
     return;
   }
 
-  // Points command
   if (content.startsWith("!points")) {
     const username = args[1];
     if (!username) {
-      return message.reply("Usage: !points <username>");
+      return message.reply("Usage: !points <user>");
     }
     try {
       const sheets = await getSheetsClient();
       const user = await findUserRow(sheets, username);
       if (!user) {
-        return message.reply(`Could not find ${username} in the roster.`);
+        return message.reply(`Cannot find user "${username}"`);
       }
-      const currentRankIndex = RANKS.findIndex(r => r.name === user.sheetName);
-      const nextRank = RANKS[currentRankIndex + 1];
+      const currentIdx = RANKS.findIndex(r => r.name === user.sheetName);
+      const nextRank = RANKS[currentIdx + 1];
       const progressMsg = nextRank
         ? `\n${nextRank.threshold - user.currentPoints} points until ${nextRank.name}`
         : "\nMax rank reached";
@@ -278,23 +274,23 @@ bot.on("messageCreate", async (message) => {
       );
     } catch (err) {
       console.error(`Error fetching points for ${username}:`, err);
-      message.reply("Something went wrong.");
+      message.reply("Error fetching points.");
     }
     return;
   }
 
-  // Optional: Test command for debugging
+  // Optional: add other commands or debug commands here
   if (content.startsWith("!testuser")) {
     const testUsername = args.slice(1).join(" ");
     const sheets = await getSheetsClient();
     const user = await findUserRow(sheets, testUsername);
     if (user) {
-      return message.reply(`Found user at row ${user.rowIndex} in sheet ${user.sheetName}`);
+      message.reply(`Found at row ${user.rowIndex} in sheet ${user.sheetName}`);
     } else {
-      return message.reply(`User "${testUsername}" not found`);
+      message.reply(`User "${testUsername}" not found`);
     }
   }
 });
 
-// Log in your bot
+// Log in your Discord bot
 bot.login(process.env.DISCORD_TOKEN);
