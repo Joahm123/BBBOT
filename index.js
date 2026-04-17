@@ -9,7 +9,7 @@ const auth = new google.auth.GoogleAuth({
 });
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
 
-// Ranks thresholds
+// Define ranks with exact sheet names
 const RANKS = [
   { name: "PRIVATE", threshold: 0 },
   { name: "PRIVATE SECOND CLASS", threshold: 10 },
@@ -17,48 +17,49 @@ const RANKS = [
   { name: "LANCE CORPORAL", threshold: 50 },
 ];
 
-// Get Google Sheets client
+// Function to get Google Sheets client
 async function getSheetsClient() {
   const client = await auth.getClient();
   return google.sheets({ version: "v4", auth: client });
 }
 
-// Search for user in all sheets
+// Function to find user across all sheets
 async function findUserRow(sheets, username) {
   for (const rank of RANKS) {
     try {
       const res = await sheets.spreadsheets.values.get({
         spreadsheetId: SPREADSHEET_ID,
-        range: `${rank.name}!D:G`,
+        range: `${rank.name}!D:D`,
       });
       const rows = res.data.values || [];
       console.log(`Searching in sheet: ${rank.name}, fetched ${rows.length} rows`);
       for (let i = 0; i < rows.length; i++) {
         const cellValue = rows[i][0];
         const sheetUsername = cellValue ? cellValue.toString().trim() : "";
+        // Debug: log each username
         console.log(`Row ${i + 1} in ${rank.name}: "${sheetUsername}"`);
-        console.log(`Comparing with input: "${username.trim().toLowerCase()}"`);
+        // Compare case-insensitive
         if (sheetUsername.toLowerCase() === username.trim().toLowerCase()) {
-          console.log(`Match found at row ${i + 1} in sheet ${rank.name}`);
+          console.log(`Match at row ${i + 1} in ${rank.name}`);
           return {
             rowIndex: i + 1,
             sheetName: rank.name,
             robloxUsername: sheetUsername,
-            robloxId: rows[i][1] || "",
+            robloxId: (rows[i][1] || "").toString(),
             currentPoints: parseInt(rows[i][2]) || 0,
             currentEvents: parseInt(rows[i][3]) || 0,
           };
         }
       }
     } catch (err) {
-      console.error(`Error searching ${rank.name}:`, err.message);
+      console.error(`Error fetching sheet ${rank.name}:`, err.message);
     }
   }
   console.log(`User "${username}" not found in any sheet`);
   return null;
 }
 
-// Fetch full row data
+// Get full row data for a user
 async function getFullRow(sheets, sheetName, rowIndex) {
   try {
     const res = await sheets.spreadsheets.values.get({
@@ -72,10 +73,10 @@ async function getFullRow(sheets, sheetName, rowIndex) {
   }
 }
 
-// Update user points and events
+// Update points and events for a user
 async function updateUserData(sheets, sheetName, rowIndex, newPoints, newEvents) {
   try {
-    console.log(`Updating row ${rowIndex} in ${sheetName}: points=${newPoints}, events=${newEvents}`);
+    console.log(`Updating row ${rowIndex} in ${sheetName} with points=${newPoints}, events=${newEvents}`);
     await sheets.spreadsheets.values.update({
       spreadsheetId: SPREADSHEET_ID,
       range: `${sheetName}!F${rowIndex}:G${rowIndex}`,
@@ -84,7 +85,6 @@ async function updateUserData(sheets, sheetName, rowIndex, newPoints, newEvents)
     });
   } catch (err) {
     console.error(`Error updating row ${rowIndex} in ${sheetName}:`, err.message);
-    throw err;
   }
 }
 
@@ -109,17 +109,16 @@ async function deleteRow(sheets, sheetName, rowIndex) {
         }],
       },
     });
-    console.log(`Deleted row ${rowIndex} in sheet ${sheetName}`);
+    console.log(`Deleted row ${rowIndex} in ${sheetName}`);
   } catch (err) {
     console.error(`Error deleting row ${rowIndex} in ${sheetName}:`, err.message);
-    throw err;
   }
 }
 
-// Append a row
+// Append a row to a sheet
 async function appendToSheet(sheets, sheetName, rowData) {
   try {
-    console.log(`Appending to sheet: ${sheetName} data: ${rowData}`);
+    console.log(`Appending to sheet ${sheetName}:`, rowData);
     await sheets.spreadsheets.values.append({
       spreadsheetId: SPREADSHEET_ID,
       range: `${sheetName}!D:H`,
@@ -129,7 +128,6 @@ async function appendToSheet(sheets, sheetName, rowData) {
     });
   } catch (err) {
     console.error(`Error appending to sheet ${sheetName}:`, err.message);
-    throw err;
   }
 }
 
@@ -142,12 +140,12 @@ function getEligibleRank(points) {
   return rank;
 }
 
-// Handle promotion
+// Handle promotion logic
 async function handlePromotion(sheets, user, newPoints) {
   const rank = getEligibleRank(newPoints);
   if (rank.name === user.sheetName) return null;
   const fullRow = await getFullRow(sheets, user.sheetName, user.rowIndex);
-  fullRow[2] = newPoints; // points
+  fullRow[2] = newPoints; // update points
   await deleteRow(sheets, user.sheetName, user.rowIndex);
   await appendToSheet(sheets, rank.name, fullRow);
   return rank.name;
@@ -165,9 +163,10 @@ bot.on("ready", () => {
   console.log(`Bot is online as ${bot.user.tag}`);
 });
 
-// Main message handler
+// Main command handler
 bot.on("messageCreate", async (message) => {
   if (message.author.bot) return;
+
   const content = message.content.trim();
 
   if (content === "!help") {
@@ -182,6 +181,7 @@ bot.on("messageCreate", async (message) => {
 
   const args = content.split(/\s+/);
 
+  // Promote command
   if (content.startsWith("!promote")) {
     const points = parseInt(args[args.length - 1]);
     const users = args.slice(1, -1);
@@ -195,7 +195,6 @@ bot.on("messageCreate", async (message) => {
       try {
         const user = await findUserRow(sheets, username);
         if (!user) {
-          console.log(`User "${username}" not found`);
           results.push(`${username} - not found in roster`);
           continue;
         }
@@ -205,8 +204,8 @@ bot.on("messageCreate", async (message) => {
           results.push(`${username} - promoted to ${newRank}! Points: ${newPoints}`);
         } else {
           await updateUserData(sheets, user.sheetName, user.rowIndex, newPoints, user.currentEvents);
-          const currentRankIdx = RANKS.findIndex(r => r.name === user.sheetName);
-          const nextRank = RANKS[currentRankIdx + 1];
+          const currentIdx = RANKS.findIndex(r => r.name === user.sheetName);
+          const nextRank = RANKS[currentIdx + 1];
           const progressMsg = nextRank ? ` (${nextRank.threshold - newPoints} points until ${nextRank.name})` : " (max rank)";
           results.push(`${username} [${user.sheetName}] - Points: ${newPoints}${progressMsg}`);
         }
@@ -219,6 +218,7 @@ bot.on("messageCreate", async (message) => {
     return;
   }
 
+  // Event command
   if (content.startsWith("!event")) {
     const users = args.slice(1);
     if (users.length === 0) {
@@ -231,7 +231,6 @@ bot.on("messageCreate", async (message) => {
       try {
         const user = await findUserRow(sheets, username);
         if (!user) {
-          console.log(`User "${username}" not found`);
           results.push(`${username} - not found in roster`);
           continue;
         }
@@ -253,6 +252,7 @@ bot.on("messageCreate", async (message) => {
     return;
   }
 
+  // Points command
   if (content.startsWith("!points")) {
     const username = args[1];
     if (!username) {
@@ -279,7 +279,7 @@ bot.on("messageCreate", async (message) => {
     return;
   }
 
-  // Optional: add other commands or debug commands here
+  // Test user command for debugging
   if (content.startsWith("!testuser")) {
     const testUsername = args.slice(1).join(" ");
     const sheets = await getSheetsClient();
@@ -292,5 +292,5 @@ bot.on("messageCreate", async (message) => {
   }
 });
 
-// Log in your Discord bot
+// Log in your bot
 bot.login(process.env.DISCORD_TOKEN);
