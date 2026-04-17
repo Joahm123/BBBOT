@@ -34,7 +34,6 @@ async function findUserRow(sheets, username) {
         const cellValue = rows[i][0];
         const sheetUsername = cellValue ? cellValue.toString().trim() : "";
         console.log(`Row ${i + 1} in ${rank.name}: "${sheetUsername}"`);
-        // Debug: Log the username you're searching for
         console.log(`Comparing with input: "${username.trim().toLowerCase()}"`);
         if (sheetUsername.toLowerCase() === username.trim().toLowerCase()) {
           console.log(`Match found at row ${i + 1} in sheet ${rank.name}`);
@@ -56,9 +55,7 @@ async function findUserRow(sheets, username) {
   return null;
 }
 
-// The other functions remain unchanged, just with added logs if desired
-
-// ... (rest of your code remains the same)
+// ... (other functions unchanged, include with same debug/error handling)
 
 const bot = new Client({
   intents: [
@@ -72,14 +69,33 @@ bot.on("ready", () => {
   console.log(`Bot online: ${bot.user.tag}`);
 });
 
-// Your message handlers...
-// (Same as previous, with debugging in findUserRow)
-
+// Command: !help
 bot.on("messageCreate", async (message) => {
-  // Your existing command handling code...
-  // For testing, add a debug command to directly test findUserRow:
-  if (message.content.startsWith("!testuser")) {
-    const args = message.content.split(/\s+/);
+  if (message.author.bot) return;
+  const content = message.content.trim();
+
+  if (content === "!help") {
+    const helpMessage = `
+Available Commands:
+!help - Show this help message
+!promote <username1> <username2> ... <points> - Promote users by adding points
+!event <username1> <username2> ... - Log an event for users
+!points <username> - Show points and rank info for a user
+`;
+    return message.reply(helpMessage);
+  }
+
+  // Your other command handlers below...
+  if (content.startsWith("!promote")) {
+    // ... existing promote code
+  } else if (content.startsWith("!event")) {
+    // ... existing event code
+  } else if (content.startsWith("!points")) {
+    // ... existing points code
+  }
+  // Optional: add your test command for debugging
+  if (content.startsWith("!testuser")) {
+    const args = content.split(/\s+/);
     const testUsername = args.slice(1).join(" ");
     const sheets = await getSheetsClient();
     const user = await findUserRow(sheets, testUsername);
@@ -89,7 +105,17 @@ bot.on("messageCreate", async (message) => {
       message.reply(`User "${testUsername}" not found`);
     }
   }
-  // ... rest of your commands
 });
+
+// Your existing promote, event, points handlers...
+
+// Example: promote handler
+bot.on("messageCreate", async (message) => {
+  if (message.author.bot) return;
+  if (!message.content.startsWith("!promote")) return;
+  // ... your promote code here
+});
+
+// ... (rest of your handlers)
 
 bot.login(process.env.DISCORD_TOKEN);
