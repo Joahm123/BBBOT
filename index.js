@@ -1,16 +1,17 @@
 import "dotenv/config";
 import { Client, GatewayIntentBits, PermissionsBitField } from "discord.js";
 import { google } from "googleapis";
+import noblox from "noblox.js";
  
 const SPREADSHEET_ID  = process.env.SPREADSHEET_ID;
-const ROBLOX_API_KEY  = process.env.ROBLOX_API_KEY;
-const ROBLOX_GROUP_ID = process.env.ROBLOX_GROUP_ID;
+const ROBLOX_COOKIE   = process.env.ROBLOX_COOKIE;
+const ROBLOX_GROUP_ID = parseInt(process.env.ROBLOX_GROUP_ID);
  
 const RANKS = [
-  { name: "PRIVATE",              threshold: 0,  robloxRoleId: "641231080"  },
-  { name: "PRIVATE SECOND CLASS", threshold: 10, robloxRoleId: "639865065"  },
-  { name: "PRIVATE FIRST CLASS",  threshold: 20, robloxRoleId: "640153080"  },
-  { name: "LANCE CORPORAL",       threshold: 50, robloxRoleId: "640541050"  },
+  { name: "PRIVATE",              threshold: 0,  robloxRoleId: 641231080 },
+  { name: "PRIVATE SECOND CLASS", threshold: 10, robloxRoleId: 639865065 },
+  { name: "PRIVATE FIRST CLASS",  threshold: 20, robloxRoleId: 640153080 },
+  { name: "LANCE CORPORAL",       threshold: 50, robloxRoleId: 640541050 },
 ];
  
 const auth = new google.auth.GoogleAuth({
@@ -39,7 +40,7 @@ async function findUserRow(sheets, username) {
             rowIndex:       i + 1,
             sheetName:      rank.name,
             robloxUsername: sheetUsername,
-            robloxId:       fullRow[1] || "",
+            robloxId:       parseInt(fullRow[1]) || null,
             currentPoints:  parseInt(fullRow[2]) || 0,
             currentEvents:  parseInt(fullRow[3]) || 0,
           };
@@ -116,17 +117,6 @@ function getEligibleRank(points) {
   return rank;
 }
  
-async function handlePromotion(sheets, user, newPoints) {
-  const newRank = getEligibleRank(newPoints);
-  const oldRank = getEligibleRank(user.currentPoints);
-  if (newRank.name === oldRank.name) return null;
-  const fullRow = await getFullRow(sheets, user.sheetName, user.rowIndex);
-  fullRow[2] = newPoints;
-  await deleteRow(sheets, user.sheetName, user.rowIndex);
-  await appendToSheet(sheets, newRank.name, fullRow);
-  return newRank;
-}
- 
 function progressMessage(sheetName, points) {
   const currentIdx = RANKS.findIndex(r => r.name === sheetName);
   const nextRank = RANKS[currentIdx + 1];
@@ -137,41 +127,14 @@ function progressMessage(sheetName, points) {
  
 async function setRobloxRank(robloxId, roleId) {
   if (!robloxId) {
-    console.warn("No Roblox ID provided, skipping Roblox rank update.");
+    console.warn("No Roblox ID provided, skipping rank update.");
     return false;
   }
   try {
-    const memberRes = await fetch(
-      `https://apis.roblox.com/cloud/v2/groups/${ROBLOX_GROUP_ID}/memberships?filter=user=='users/${robloxId}'`,
-      { headers: { "x-api-key": ROBLOX_API_KEY } }
-    );
-    const memberData = await memberRes.json();
-    const membership = memberData.groupMemberships?.[0];
-    if (!membership) {
-      console.warn(`No membership found for Roblox ID ${robloxId}`);
-      return false;
-    }
-    const patchRes = await fetch(
-      `https://apis.roblox.com/cloud/v2/${membership.path}`,
-      {
-        method: "PATCH",
-        headers: {
-          "x-api-key": ROBLOX_API_KEY,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          role: `groups/${ROBLOX_GROUP_ID}/roles/${roleId}`,
-        }),
-      }
-    );
-    if (!patchRes.ok) {
-      const err = await patchRes.json();
-      console.error("Roblox rank update failed:", err);
-      return false;
-    }
+    await noblox.setRank(ROBLOX_GROUP_ID, robloxId, roleId);
     return true;
   } catch (err) {
-    console.error("Roblox API error:", err.message);
+    console.error("Roblox rank update failed:", err.message);
     return false;
   }
 }
@@ -188,6 +151,12 @@ bot.on("ready", () => {
   console.log(`Bot is online as ${bot.user.tag}`);
 });
  
+noblox.setCookie(ROBLOX_COOKIE).then(() => {
+  console.log("Logged into Roblox.");
+}).catch(err => {
+  console.error("Failed to log into Roblox:", err.message);
+});
+ 
 bot.on("messageCreate", async (message) => {
   if (message.author.bot) return;
  
@@ -198,59 +167,15 @@ bot.on("messageCreate", async (message) => {
   if (command === "!help") {
     return message.reply(
       "**Commands:**\n" +
-      "`!promote <user(s)> <points>` — Add points & promote if threshold met *(Moderator only)*\n" +
-      "`!event <user(s)> <points>` — Log an event with a set point value *(Moderator only)*\n" +
-      "`!points <user>` — Show a user's points and rank\n" +
-      "`!check <user>` — Check a user's rank and progress\n"
+      "`!event <user(s)> <points>` - Log an event and add points (Moderator only)\n" +
+      "`!points <user>` - Show a user's points and rank\n" +
+      "`!check <user>` - Check a user's rank, auto-promotes if eligible\n"
     );
-  }
- 
-  if (command === "!promote") {
-    if (!message.member.permissions.has(PermissionsBitField.Flags.ModerateMembers)) {
-      return message.reply("❌ You need the **Moderator** permission to use this command.");
-    }
- 
-    const points = parseInt(args[args.length - 1]);
-    const users  = args.slice(1, -1);
- 
-    if (users.length === 0 || isNaN(points) || points <= 0) {
-      return message.reply("Usage: `!promote <user(s)> <points>`");
-    }
- 
-    const sheets  = await getSheetsClient();
-    const results = [];
- 
-    for (const username of users) {
-      try {
-        const user = await findUserRow(sheets, username);
-        if (!user) {
-          results.push(`• **${username}** — not found in roster`);
-          continue;
-        }
-        const newPoints = user.currentPoints + points;
-        const promoted  = await handlePromotion(sheets, user, newPoints);
-        if (promoted) {
-          const robloxUpdated = await setRobloxRank(user.robloxId, promoted.robloxRoleId);
-          results.push(
-            `• **${username}** — promoted to **${promoted.name}**! 🎖️` +
-            (robloxUpdated ? " *(Roblox rank updated)*" : " *(Roblox rank update failed)*")
-          );
-        } else {
-          await updateUserData(sheets, user.sheetName, user.rowIndex, newPoints, user.currentEvents);
-          results.push(`• **${username}** [${user.sheetName}] — Points: ${newPoints} *(${progressMessage(user.sheetName, newPoints)})*`);
-        }
-      } catch (err) {
-        console.error(err);
-        results.push(`• **${username}** — error processing`);
-      }
-    }
- 
-    return message.reply("**Promotion Results:**\n" + results.join("\n"));
   }
  
   if (command === "!event") {
     if (!message.member.permissions.has(PermissionsBitField.Flags.ModerateMembers)) {
-      return message.reply("❌ You need the **Moderator** permission to use this command.");
+      return message.reply("You need the Moderator permission to use this command.");
     }
  
     const points = parseInt(args[args.length - 1]);
@@ -267,25 +192,16 @@ bot.on("messageCreate", async (message) => {
       try {
         const user = await findUserRow(sheets, username);
         if (!user) {
-          results.push(`• **${username}** — not found in roster`);
+          results.push(`- ${username}: not found in roster`);
           continue;
         }
         const newPoints = user.currentPoints + points;
         const newEvents = user.currentEvents + 1;
-        const promoted  = await handlePromotion(sheets, user, newPoints);
-        if (promoted) {
-          const robloxUpdated = await setRobloxRank(user.robloxId, promoted.robloxRoleId);
-          results.push(
-            `• **${username}** — promoted to **${promoted.name}**! 🎖️ *(+${points} pts, Events: ${newEvents})*` +
-            (robloxUpdated ? " *(Roblox rank updated)*" : " *(Roblox rank update failed)*")
-          );
-        } else {
-          await updateUserData(sheets, user.sheetName, user.rowIndex, newPoints, newEvents);
-          results.push(`• **${username}** [${user.sheetName}] — +${points} pts → ${newPoints} total | Events: ${newEvents} *(${progressMessage(user.sheetName, newPoints)})*`);
-        }
+        await updateUserData(sheets, user.sheetName, user.rowIndex, newPoints, newEvents);
+        results.push(`- ${username} [${user.sheetName}]: +${points} pts, ${newPoints} total | Events: ${newEvents} | ${progressMessage(user.sheetName, newPoints)}`);
       } catch (err) {
         console.error(err);
-        results.push(`• **${username}** — error processing`);
+        results.push(`- ${username}: error processing`);
       }
     }
  
@@ -301,17 +217,17 @@ bot.on("messageCreate", async (message) => {
       const sheets = await getSheetsClient();
       const user   = await findUserRow(sheets, username);
       if (!user) {
-        return message.reply(`❌ Cannot find user **"${username}"** in the roster.`);
+        return message.reply(`Cannot find user "${username}" in the roster.`);
       }
       return message.reply(
         `**${username}** [${user.sheetName}]\n` +
-        `Points: **${user.currentPoints}**\n` +
-        `Events: **${user.currentEvents}**\n` +
-        `Progress: *${progressMessage(user.sheetName, user.currentPoints)}*`
+        `Points: ${user.currentPoints}\n` +
+        `Events: ${user.currentEvents}\n` +
+        `Progress: ${progressMessage(user.sheetName, user.currentPoints)}`
       );
     } catch (err) {
       console.error(err);
-      return message.reply("❌ Error fetching points.");
+      return message.reply("Error fetching points.");
     }
   }
  
@@ -321,20 +237,39 @@ bot.on("messageCreate", async (message) => {
       return message.reply("Usage: `!check <username>`");
     }
     try {
-      const sheets = await getSheetsClient();
-      const user   = await findUserRow(sheets, username);
+      const sheets       = await getSheetsClient();
+      const user         = await findUserRow(sheets, username);
       if (!user) {
-        return message.reply(`❌ Could not find user **"${username}"** in the roster.`);
+        return message.reply(`Could not find user "${username}" in the roster.`);
       }
+ 
+      const eligibleRank = getEligibleRank(user.currentPoints);
+      const currentRank  = RANKS.find(r => r.name === user.sheetName);
+ 
+      if (eligibleRank.name !== currentRank.name) {
+        const fullRow = await getFullRow(sheets, user.sheetName, user.rowIndex);
+        fullRow[2] = user.currentPoints;
+        await deleteRow(sheets, user.sheetName, user.rowIndex);
+        await appendToSheet(sheets, eligibleRank.name, fullRow);
+        const robloxUpdated = await setRobloxRank(user.robloxId, eligibleRank.robloxRoleId);
+        return message.reply(
+          `**${username}** has been promoted to **${eligibleRank.name}**\n` +
+          `Points: ${user.currentPoints}\n` +
+          `Events: ${user.currentEvents}\n` +
+          `Progress: ${progressMessage(eligibleRank.name, user.currentPoints)}\n` +
+          (robloxUpdated ? "Roblox rank updated successfully." : "Roblox rank update failed.")
+        );
+      }
+ 
       return message.reply(
         `**${username}** [${user.sheetName}]\n` +
-        `Points: **${user.currentPoints}**\n` +
-        `Events: **${user.currentEvents}**\n` +
-        `Progress: *${progressMessage(user.sheetName, user.currentPoints)}*`
+        `Points: ${user.currentPoints}\n` +
+        `Events: ${user.currentEvents}\n` +
+        `Progress: ${progressMessage(user.sheetName, user.currentPoints)}`
       );
     } catch (err) {
       console.error(err);
-      return message.reply("❌ Error retrieving user data.");
+      return message.reply("Error retrieving user data.");
     }
   }
 });
