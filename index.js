@@ -2,10 +2,6 @@ import "dotenv/config";
 import { Client, GatewayIntentBits, PermissionsBitField } from "discord.js";
 import { google } from "googleapis";
 
-// ============================================================
-// CONFIGURATION
-// ============================================================
-
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
 
 const RANKS = [
@@ -14,10 +10,6 @@ const RANKS = [
   { name: "PRIVATE FIRST CLASS",  threshold: 20 },
   { name: "LANCE CORPORAL",       threshold: 50 },
 ];
-
-// ============================================================
-// GOOGLE SHEETS SETUP
-// ============================================================
 
 const auth = new google.auth.GoogleAuth({
   credentials: JSON.parse(process.env.GOOGLE_CREDENTIALS),
@@ -29,11 +21,6 @@ async function getSheetsClient() {
   return google.sheets({ version: "v4", auth: client });
 }
 
-// ============================================================
-// SHEETS HELPERS
-// ============================================================
-
-// Find a user across all rank sheets (data starts at row 6)
 async function findUserRow(sheets, username) {
   for (const rank of RANKS) {
     try {
@@ -63,7 +50,6 @@ async function findUserRow(sheets, username) {
   return null;
 }
 
-// Get columns D–H for a specific row
 async function getFullRow(sheets, sheetName, rowIndex) {
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: SPREADSHEET_ID,
@@ -72,7 +58,6 @@ async function getFullRow(sheets, sheetName, rowIndex) {
   return res.data.values ? res.data.values[0] : [];
 }
 
-// Update points (col F) and events (col G)
 async function updateUserData(sheets, sheetName, rowIndex, newPoints, newEvents) {
   try {
     await sheets.spreadsheets.values.update({
@@ -86,7 +71,6 @@ async function updateUserData(sheets, sheetName, rowIndex, newPoints, newEvents)
   }
 }
 
-// Delete a row by index
 async function deleteRow(sheets, sheetName, rowIndex) {
   try {
     const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
@@ -112,7 +96,6 @@ async function deleteRow(sheets, sheetName, rowIndex) {
   }
 }
 
-// Append a new row to a sheet
 async function appendToSheet(sheets, sheetName, rowData) {
   await sheets.spreadsheets.values.append({
     spreadsheetId: SPREADSHEET_ID,
@@ -123,11 +106,6 @@ async function appendToSheet(sheets, sheetName, rowData) {
   });
 }
 
-// ============================================================
-// RANK LOGIC
-// ============================================================
-
-// Return the highest rank a user qualifies for based on points
 function getEligibleRank(points) {
   let rank = RANKS[0];
   for (const r of RANKS) {
@@ -136,7 +114,6 @@ function getEligibleRank(points) {
   return rank;
 }
 
-// Move user to a new sheet if they crossed a rank threshold
 async function handlePromotion(sheets, user, newPoints) {
   const newRank = getEligibleRank(newPoints);
   const oldRank = getEligibleRank(user.currentPoints);
@@ -148,7 +125,6 @@ async function handlePromotion(sheets, user, newPoints) {
   return newRank.name;
 }
 
-// Build a progress string toward next rank
 function progressMessage(sheetName, points) {
   const currentIdx = RANKS.findIndex(r => r.name === sheetName);
   const nextRank = RANKS[currentIdx + 1];
@@ -156,10 +132,6 @@ function progressMessage(sheetName, points) {
     ? `${nextRank.threshold - points} points until ${nextRank.name}`
     : "Max rank reached";
 }
-
-// ============================================================
-// DISCORD BOT
-// ============================================================
 
 const bot = new Client({
   intents: [
@@ -170,12 +142,8 @@ const bot = new Client({
 });
 
 bot.on("ready", () => {
-  console.log(`✅ Bot is online as ${bot.user.tag}`);
+  console.log(`Bot is online as ${bot.user.tag}`);
 });
-
-// ============================================================
-// MESSAGE HANDLER
-// ============================================================
 
 bot.on("messageCreate", async (message) => {
   if (message.author.bot) return;
@@ -184,13 +152,9 @@ bot.on("messageCreate", async (message) => {
   const args    = content.split(/\s+/);
   const command = args[0].toLowerCase();
 
-  // ----------------------------------------------------------
-  // !help
-  // ----------------------------------------------------------
   if (command === "!help") {
     return message.reply(
-      "**📋 Commands:**\n" +
-      "`!help` — Show this message\n" +
+      "**Commands:**\n" +
       "`!promote <user(s)> <points>` — Add points & promote if threshold met *(Moderator only)*\n" +
       "`!event <user(s)> <points>` — Log an event with a set point value *(Moderator only)*\n" +
       "`!points <user>` — Show a user's points and rank\n" +
@@ -198,9 +162,6 @@ bot.on("messageCreate", async (message) => {
     );
   }
 
-  // ----------------------------------------------------------
-  // !promote <user(s)> <points>   (Moderator only)
-  // ----------------------------------------------------------
   if (command === "!promote") {
     if (!message.member.permissions.has(PermissionsBitField.Flags.ModerateMembers)) {
       return message.reply("❌ You need the **Moderator** permission to use this command.");
@@ -223,10 +184,8 @@ bot.on("messageCreate", async (message) => {
           results.push(`• **${username}** — not found in roster`);
           continue;
         }
-
         const newPoints = user.currentPoints + points;
         const promoted  = await handlePromotion(sheets, user, newPoints);
-
         if (promoted) {
           results.push(`• **${username}** — promoted to **${promoted}**! 🎖️`);
         } else {
@@ -242,9 +201,6 @@ bot.on("messageCreate", async (message) => {
     return message.reply("**Promotion Results:**\n" + results.join("\n"));
   }
 
-  // ----------------------------------------------------------
-  // !event <user(s)> <points>   (Moderator only)
-  // ----------------------------------------------------------
   if (command === "!event") {
     if (!message.member.permissions.has(PermissionsBitField.Flags.ModerateMembers)) {
       return message.reply("❌ You need the **Moderator** permission to use this command.");
@@ -267,11 +223,9 @@ bot.on("messageCreate", async (message) => {
           results.push(`• **${username}** — not found in roster`);
           continue;
         }
-
         const newPoints = user.currentPoints + points;
         const newEvents = user.currentEvents + 1;
         const promoted  = await handlePromotion(sheets, user, newPoints);
-
         if (promoted) {
           results.push(`• **${username}** — promoted to **${promoted}**! 🎖️ *(+${points} pts, Events: ${newEvents})*`);
         } else {
@@ -287,22 +241,17 @@ bot.on("messageCreate", async (message) => {
     return message.reply("**Event Log Results:**\n" + results.join("\n"));
   }
 
-  // ----------------------------------------------------------
-  // !points <user>
-  // ----------------------------------------------------------
   if (command === "!points") {
     const username = args[1];
     if (!username) {
       return message.reply("Usage: `!points <user>`");
     }
-
     try {
       const sheets = await getSheetsClient();
       const user   = await findUserRow(sheets, username);
       if (!user) {
         return message.reply(`❌ Cannot find user **"${username}"** in the roster.`);
       }
-
       return message.reply(
         `**${username}** [${user.sheetName}]\n` +
         `Points: **${user.currentPoints}**\n` +
@@ -315,22 +264,17 @@ bot.on("messageCreate", async (message) => {
     }
   }
 
-  // ----------------------------------------------------------
-  // !check <user>
-  // ----------------------------------------------------------
   if (command === "!check") {
     const username = args.slice(1).join(" ");
     if (!username) {
       return message.reply("Usage: `!check <username>`");
     }
-
     try {
       const sheets = await getSheetsClient();
       const user   = await findUserRow(sheets, username);
       if (!user) {
         return message.reply(`❌ Could not find user **"${username}"** in the roster.`);
       }
-
       return message.reply(
         `**${username}** [${user.sheetName}]\n` +
         `Points: **${user.currentPoints}**\n` +
@@ -343,9 +287,5 @@ bot.on("messageCreate", async (message) => {
     }
   }
 });
-
-// ============================================================
-// LOGIN
-// ============================================================
 
 bot.login(process.env.DISCORD_TOKEN);
