@@ -1,11 +1,16 @@
 import "dotenv/config";
-import { Client, GatewayIntentBits, PermissionsBitField } from "discord.js";
+import { Client, GatewayIntentBits } from "discord.js";
 import { google } from "googleapis";
 import noblox from "noblox.js";
  
 const SPREADSHEET_ID  = process.env.SPREADSHEET_ID;
 const ROBLOX_COOKIE   = process.env.ROBLOX_COOKIE;
 const ROBLOX_GROUP_ID = parseInt(process.env.ROBLOX_GROUP_ID);
+ 
+const ALLOWED_ROLES = [
+  "1474218253290176531",
+  "1474218253290176530",
+];
  
 const RANKS = [
   { name: "PRIVATE",              threshold: 0,  robloxRoleId: 641231080 },
@@ -139,6 +144,10 @@ async function setRobloxRank(robloxId, roleId) {
   }
 }
  
+function hasAllowedRole(member) {
+  return member.roles.cache.some(role => ALLOWED_ROLES.includes(role.id));
+}
+ 
 const bot = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -167,15 +176,15 @@ bot.on("messageCreate", async (message) => {
   if (command === "!help") {
     return message.reply(
       "**Commands:**\n" +
-      "`!event <user(s)> <points>` - Log an event and add points (Moderator only)\n" +
+      "`!event <user(s)> <points>` - Log an event and add points\n" +
       "`!points <user>` - Show a user's points and rank\n" +
       "`!check <user>` - Check a user's rank, auto-promotes if eligible\n"
     );
   }
  
   if (command === "!event") {
-    if (!message.member.permissions.has(PermissionsBitField.Flags.ModerateMembers)) {
-      return message.reply("You need the Moderator permission to use this command.");
+    if (!hasAllowedRole(message.member)) {
+      return message.reply("You do not have permission to use this command.");
     }
  
     const points = parseInt(args[args.length - 1]);
@@ -275,3 +284,4 @@ bot.on("messageCreate", async (message) => {
 });
  
 bot.login(process.env.DISCORD_TOKEN);
+ 
