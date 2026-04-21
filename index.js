@@ -180,7 +180,8 @@ bot.on("messageCreate", async (message) => {
       "`!event <user(s)> <points>` - Log an event and add points\n" +
       "`!points <user>` - Show a user's points and rank\n" +
       "`!check <user>` - Check a user's rank, auto-promotes if eligible\n" +
-      "`!note <user> <message>` - Add or update a note for a user\n"
+      "`!note <user> <message>` - Add or update a note for a user\n" +
+      "`!quota` - List players with 0 monthly events (excluding Lance Corporal)\n"
     );
   }
 
@@ -298,7 +299,7 @@ bot.on("messageCreate", async (message) => {
       return message.reply(`User "${username}" not found in roster.`);
     }
 
-    // Update the note column (assuming it's column H or adjust accordingly)
+    // Update the note column (assuming it's column H)
     const noteColumnRange = `${user.sheetName}!H${user.rowIndex}`;
     try {
       await sheets.spreadsheets.values.update({
@@ -311,6 +312,38 @@ bot.on("messageCreate", async (message) => {
     } catch (err) {
       console.error(err);
       return message.reply(`Failed to update note for ${username}.`);
+    }
+  }
+
+  if (command === "!quota") {
+    const sheets = await getSheetsClient();
+    const results = [];
+
+    for (const rank of RANKS) {
+      if (rank.name === "LANCE CORPORAL") continue; // skip Lance Corporals
+      try {
+        const res = await sheets.spreadsheets.values.get({
+          spreadsheetId: SPREADSHEET_ID,
+          range: `${rank.name}!D:D`,
+        });
+        const rows = res.data.values || [];
+        for (let i = 5; i < rows.length; i++) {
+          const username = rows[i][0]?.toString().trim() || "";
+          const fullRow = await getFullRow(sheets, rank.name, i + 1);
+          const currentEvents = parseInt(fullRow[3]) || 0;
+          if (currentEvents === 0) {
+            results.push(`${username} (${rank.name})`);
+          }
+        }
+      } catch (err) {
+        console.error(`Error fetching sheet ${rank.name}:`, err.message);
+      }
+    }
+
+    if (results.length === 0) {
+      return message.reply("No players with 0 monthly events found (excluding Lance Corporal).");
+    } else {
+      return message.reply("Players with 0 monthly events:\n" + results.join("\n"));
     }
   }
 });
