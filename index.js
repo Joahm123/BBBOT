@@ -145,7 +145,7 @@ async function setRobloxRank(robloxId, roleId) {
 }
 
 // Removed role check to allow everyone
-// function hasAllowedRole(member) {
+// function hasAllowedRole(member
 //   return member.roles.cache.some(role => ALLOWED_ROLES.includes(role.id));
 // }
 
