@@ -145,7 +145,7 @@ async function setRobloxRank(robloxId, roleId) {
 }
 
 // Removed role check to allow everyone
-// function hasAllowedRole(member
+// function hasAllowedRole(member) {
 //   return member.roles.cache.some(role => ALLOWED_ROLES.includes(role.id));
 // }
 
@@ -179,7 +179,8 @@ bot.on("messageCreate", async (message) => {
       "**Commands:**\n" +
       "`!event <user(s)> <points>` - Log an event and add points\n" +
       "`!points <user>` - Show a user's points and rank\n" +
-      "`!check <user>` - Check a user's rank, auto-promotes if eligible\n"
+      "`!check <user>` - Check a user's rank, auto-promotes if eligible\n" +
+      "`!note <user> <message>` - Add or update a note for a user\n"
     );
   }
 
@@ -281,6 +282,35 @@ bot.on("messageCreate", async (message) => {
     } catch (err) {
       console.error(err);
       return message.reply("Error retrieving user data.");
+    }
+  }
+
+  if (command === "!note") {
+    const username = args[1];
+    const noteMessage = args.slice(2).join(" ");
+    if (!username || !noteMessage) {
+      return message.reply("Usage: `!note <user> <message>`");
+    }
+
+    const sheets = await getSheetsClient();
+    const user = await findUserRow(sheets, username);
+    if (!user) {
+      return message.reply(`User "${username}" not found in roster.`);
+    }
+
+    // Update the note column (assuming it's column H or adjust accordingly)
+    const noteColumnRange = `${user.sheetName}!H${user.rowIndex}`;
+    try {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: SPREADSHEET_ID,
+        range: noteColumnRange,
+        valueInputOption: "RAW",
+        requestBody: { values: [[noteMessage]] },
+      });
+      return message.reply(`Note for ${username} updated.`);
+    } catch (err) {
+      console.error(err);
+      return message.reply(`Failed to update note for ${username}.`);
     }
   }
 });
