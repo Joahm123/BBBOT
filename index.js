@@ -2,33 +2,33 @@ import "dotenv/config";
 import { Client, GatewayIntentBits } from "discord.js";
 import { google } from "googleapis";
 import noblox from "noblox.js";
- 
+
 const SPREADSHEET_ID  = process.env.SPREADSHEET_ID;
 const ROBLOX_COOKIE   = process.env.ROBLOX_COOKIE;
 const ROBLOX_GROUP_ID = parseInt(process.env.ROBLOX_GROUP_ID);
- 
+
 const ALLOWED_ROLES = [
   "1474218253290176531",
   "1474218253290176530",
 ];
- 
+
 const RANKS = [
   { name: "PRIVATE",              threshold: 0,  robloxRoleId: 641231080 },
   { name: "PRIVATE SECOND CLASS", threshold: 10, robloxRoleId: 639865065 },
   { name: "PRIVATE FIRST CLASS",  threshold: 20, robloxRoleId: 640153080 },
   { name: "LANCE CORPORAL",       threshold: 50, robloxRoleId: 640541050 },
 ];
- 
+
 const auth = new google.auth.GoogleAuth({
   credentials: JSON.parse(process.env.GOOGLE_CREDENTIALS),
   scopes: ["https://www.googleapis.com/auth/spreadsheets"],
 });
- 
+
 async function getSheetsClient() {
   const client = await auth.getClient();
   return google.sheets({ version: "v4", auth: client });
 }
- 
+
 async function findUserRow(sheets, username) {
   for (const rank of RANKS) {
     try {
@@ -57,7 +57,7 @@ async function findUserRow(sheets, username) {
   }
   return null;
 }
- 
+
 async function getFullRow(sheets, sheetName, rowIndex) {
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: SPREADSHEET_ID,
@@ -65,7 +65,7 @@ async function getFullRow(sheets, sheetName, rowIndex) {
   });
   return res.data.values ? res.data.values[0] : [];
 }
- 
+
 async function updateUserData(sheets, sheetName, rowIndex, newPoints, newEvents) {
   try {
     await sheets.spreadsheets.values.update({
@@ -78,7 +78,7 @@ async function updateUserData(sheets, sheetName, rowIndex, newPoints, newEvents)
     console.error(`Error updating row ${rowIndex} in ${sheetName}:`, err.message);
   }
 }
- 
+
 async function deleteRow(sheets, sheetName, rowIndex) {
   try {
     const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
@@ -103,7 +103,7 @@ async function deleteRow(sheets, sheetName, rowIndex) {
     console.error(`Error deleting row ${rowIndex} in ${sheetName}:`, err.message);
   }
 }
- 
+
 async function appendToSheet(sheets, sheetName, rowData) {
   await sheets.spreadsheets.values.append({
     spreadsheetId: SPREADSHEET_ID,
@@ -113,7 +113,7 @@ async function appendToSheet(sheets, sheetName, rowData) {
     requestBody: { values: [rowData] },
   });
 }
- 
+
 function getEligibleRank(points) {
   let rank = RANKS[0];
   for (const r of RANKS) {
@@ -121,7 +121,7 @@ function getEligibleRank(points) {
   }
   return rank;
 }
- 
+
 function progressMessage(sheetName, points) {
   const currentIdx = RANKS.findIndex(r => r.name === sheetName);
   const nextRank = RANKS[currentIdx + 1];
@@ -129,7 +129,7 @@ function progressMessage(sheetName, points) {
     ? `${nextRank.threshold - points} points until ${nextRank.name}`
     : "Max rank reached";
 }
- 
+
 async function setRobloxRank(robloxId, roleId) {
   if (!robloxId) {
     console.warn("No Roblox ID provided, skipping rank update.");
@@ -143,11 +143,12 @@ async function setRobloxRank(robloxId, roleId) {
     return false;
   }
 }
- 
-function hasAllowedRole(member) {
-  return member.roles.cache.some(role => ALLOWED_ROLES.includes(role.id));
-}
- 
+
+// Removed role check to allow everyone
+// function hasAllowedRole(member) {
+//   return member.roles.cache.some(role => ALLOWED_ROLES.includes(role.id));
+// }
+
 const bot = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -155,24 +156,24 @@ const bot = new Client({
     GatewayIntentBits.MessageContent,
   ],
 });
- 
+
 bot.on("ready", () => {
   console.log(`Bot is online as ${bot.user.tag}`);
 });
- 
+
 noblox.setCookie(ROBLOX_COOKIE).then(() => {
   console.log("Logged into Roblox.");
 }).catch(err => {
   console.error("Failed to log into Roblox:", err.message);
 });
- 
+
 bot.on("messageCreate", async (message) => {
   if (message.author.bot) return;
- 
+
   const content = message.content.trim();
   const args    = content.split(/\s+/);
   const command = args[0].toLowerCase();
- 
+
   if (command === "!help") {
     return message.reply(
       "**Commands:**\n" +
@@ -181,22 +182,23 @@ bot.on("messageCreate", async (message) => {
       "`!check <user>` - Check a user's rank, auto-promotes if eligible\n"
     );
   }
- 
+
+  // Removed role check, everyone can use commands
+  // if (!hasAllowedRole(message.member)) {
+  //   return message.reply("You do not have permission to use this command.");
+  // }
+
   if (command === "!event") {
-    if (!hasAllowedRole(message.member)) {
-      return message.reply("You do not have permission to use this command.");
-    }
- 
     const points = parseInt(args[args.length - 1]);
     const users  = args.slice(1, -1);
- 
+
     if (users.length === 0 || isNaN(points) || points <= 0) {
       return message.reply("Usage: `!event <user(s)> <points>`\nExample: `!event PlayerOne PlayerTwo 3`");
     }
- 
+
     const sheets  = await getSheetsClient();
     const results = [];
- 
+
     for (const username of users) {
       try {
         const user = await findUserRow(sheets, username);
@@ -213,10 +215,10 @@ bot.on("messageCreate", async (message) => {
         results.push(`- ${username}: error processing`);
       }
     }
- 
+
     return message.reply("**Event Log Results:**\n" + results.join("\n"));
   }
- 
+
   if (command === "!points") {
     const username = args[1];
     if (!username) {
@@ -239,7 +241,7 @@ bot.on("messageCreate", async (message) => {
       return message.reply("Error fetching points.");
     }
   }
- 
+
   if (command === "!check") {
     const username = args.slice(1).join(" ");
     if (!username) {
@@ -251,10 +253,10 @@ bot.on("messageCreate", async (message) => {
       if (!user) {
         return message.reply(`Could not find user "${username}" in the roster.`);
       }
- 
+
       const eligibleRank = getEligibleRank(user.currentPoints);
       const currentRank  = RANKS.find(r => r.name === user.sheetName);
- 
+
       if (eligibleRank.name !== currentRank.name) {
         const fullRow = await getFullRow(sheets, user.sheetName, user.rowIndex);
         fullRow[2] = user.currentPoints;
@@ -269,7 +271,7 @@ bot.on("messageCreate", async (message) => {
           (robloxUpdated ? "Roblox rank updated successfully." : "Roblox rank update failed.")
         );
       }
- 
+
       return message.reply(
         `**${username}** [${user.sheetName}]\n` +
         `Points: ${user.currentPoints}\n` +
@@ -282,6 +284,5 @@ bot.on("messageCreate", async (message) => {
     }
   }
 });
- 
+
 bot.login(process.env.DISCORD_TOKEN);
- 
