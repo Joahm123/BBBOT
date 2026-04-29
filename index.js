@@ -59,7 +59,7 @@ async function firewarnUser(sheets, username) {
   for (const rank of RANKS) {
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
-      range: `${rank.name}!A6:L100`,
+      range: `${rank.name}!D6:L100`,
     });
 
     const rows = res.data.values;
@@ -71,8 +71,8 @@ async function firewarnUser(sheets, username) {
       if (name && name.toLowerCase().trim() === username.toLowerCase().trim()) {
         const rowIndex = i + 6;
 
-        const fw1 = rows[i][9];
-        const fw2 = rows[i][10];
+        const fw1 = rows[i][6];
+        const fw2 = rows[i][7];
 
         let range = "";
 
@@ -168,7 +168,11 @@ bot.on("messageCreate", async (message) => {
         requestBody: { values: [[newPoints, newEvents]] },
       });
 
-      results.push(`${u}: +${points} (${newPoints})`);
+      const rank = getEligibleRank(newPoints);
+
+      results.push(
+        `${u}: +${points} (${newPoints}) | Rank: ${rank.name} | ${progressMessage(user.sheetName, newPoints)}`
+      );
     }
 
     return message.reply(results.join("\n"));
