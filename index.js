@@ -1,17 +1,14 @@
 import "dotenv/config";
 import { Client, GatewayIntentBits } from "discord.js";
 import { google } from "googleapis";
-import noblox from "noblox.js";
 
-const SPREADSHEET_ID  = process.env.SPREADSHEET_ID;
-const ROBLOX_COOKIE   = process.env.ROBLOX_COOKIE;
-const ROBLOX_GROUP_ID = parseInt(process.env.ROBLOX_GROUP_ID);
+const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
 
 const RANKS = [
-  { name: "PRIVATE",              threshold: 0,  robloxRoleId: 641231080 },
-  { name: "PRIVATE SECOND CLASS", threshold: 10, robloxRoleId: 639865065 },
-  { name: "PRIVATE FIRST CLASS",  threshold: 20, robloxRoleId: 640153080 },
-  { name: "LANCE CORPORAL",       threshold: 50, robloxRoleId: 640541050 },
+  { name: "PRIVATE", threshold: 0 },
+  { name: "PRIVATE SECOND CLASS", threshold: 10 },
+  { name: "PRIVATE FIRST CLASS", threshold: 20 },
+  { name: "LANCE CORPORAL", threshold: 50 },
 ];
 
 const auth = new google.auth.GoogleAuth({
@@ -49,7 +46,6 @@ async function findUserRow(sheets, username) {
         return {
           rowIndex: i + 1,
           sheetName: rank.name,
-          robloxId: parseInt(fullRow[1]) || null,
           currentPoints: parseInt(fullRow[2]) || 0,
           currentEvents: parseInt(fullRow[3]) || 0,
         };
@@ -71,6 +67,7 @@ async function firewarnUser(sheets, username) {
 
     for (let i = 0; i < rows.length; i++) {
       const name = rows[i][0];
+
       if (name && name.toLowerCase().trim() === username.toLowerCase().trim()) {
         const rowIndex = i + 6;
 
@@ -116,16 +113,6 @@ function progressMessage(sheetName, points) {
   return next ? `${next.threshold - points} points until ${next.name}` : "Max rank reached";
 }
 
-async function setRobloxRank(robloxId, roleId) {
-  if (!robloxId) return false;
-  try {
-    await noblox.setRank(ROBLOX_GROUP_ID, robloxId, roleId);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 const bot = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -137,8 +124,6 @@ const bot = new Client({
 bot.on("ready", () => {
   console.log(`Logged in as ${bot.user.tag}`);
 });
-
-noblox.setCookie(ROBLOX_COOKIE);
 
 bot.on("messageCreate", async (message) => {
   if (message.author.bot) return;
@@ -158,7 +143,10 @@ bot.on("messageCreate", async (message) => {
   if (command === "!event") {
     const points = parseInt(args[args.length - 1]);
     const users = args.slice(1, -1);
-    if (!users.length || isNaN(points)) return message.reply("Usage: !event <users> <points>");
+
+    if (!users.length || isNaN(points)) {
+      return message.reply("Usage: !event <users> <points>");
+    }
 
     const sheets = await getSheetsClient();
     const results = [];
@@ -188,11 +176,16 @@ bot.on("messageCreate", async (message) => {
 
   if (command === "!points") {
     const username = args[1];
+    if (!username) return message.reply("Usage: !points <user>");
+
     const sheets = await getSheetsClient();
     const user = await findUserRow(sheets, username);
+
     if (!user) return message.reply("User not found");
 
-    return message.reply(`${username}: ${user.currentPoints} pts | ${user.currentEvents} events`);
+    return message.reply(
+      `${username}: ${user.currentPoints} pts | ${user.currentEvents} events | ${progressMessage(user.sheetName, user.currentPoints)}`
+    );
   }
 });
 
