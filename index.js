@@ -131,15 +131,18 @@ bot.on("messageCreate", async (message) => {
   const args = message.content.trim().split(/\s+/);
   const command = args[0].toLowerCase();
 
+  const sheets = await getSheetsClient();
+
+  // FIREWARN
   if (command === "!firewarn") {
     const username = args.slice(1).join(" ");
     if (!username) return message.reply("Usage: !firewarn <user>");
 
-    const sheets = await getSheetsClient();
     const result = await firewarnUser(sheets, username);
     return message.reply(result);
   }
 
+  // EVENT
   if (command === "!event") {
     const points = parseInt(args[args.length - 1]);
     const users = args.slice(1, -1);
@@ -148,7 +151,6 @@ bot.on("messageCreate", async (message) => {
       return message.reply("Usage: !event <users> <points>");
     }
 
-    const sheets = await getSheetsClient();
     const results = [];
 
     for (const u of users) {
@@ -178,18 +180,88 @@ bot.on("messageCreate", async (message) => {
     return message.reply(results.join("\n"));
   }
 
+  // POINTS
   if (command === "!points") {
     const username = args[1];
     if (!username) return message.reply("Usage: !points <user>");
 
-    const sheets = await getSheetsClient();
     const user = await findUserRow(sheets, username);
-
     if (!user) return message.reply("User not found");
 
     return message.reply(
       `${username}: ${user.currentPoints} pts | ${user.currentEvents} events | ${progressMessage(user.sheetName, user.currentPoints)}`
     );
+  }
+
+  // NOTE (overwrite)
+  if (command === "!note") {
+    const users = args.slice(1, -1);
+    const note = args.slice(-1).join(" ");
+
+    if (!users.length || !note) {
+      return message.reply("Usage: !note <users> <note>");
+    }
+
+    const results = [];
+
+    for (const username of users) {
+      const user = await findUserRow(sheets, username);
+
+      if (!user) {
+        results.push(`${username}: not found`);
+        continue;
+      }
+
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: SPREADSHEET_ID,
+        range: `${user.sheetName}!H${user.rowIndex}`,
+        valueInputOption: "RAW",
+        requestBody: { values: [[note]] },
+      });
+
+      results.push(`${username}: note set`);
+    }
+
+    return message.reply(results.join("\n"));
+  }
+
+  // ADDNOTE (append)
+  if (command === "!addnote") {
+    const users = args.slice(1, -1);
+    const note = args.slice(-1).join(" ");
+
+    if (!users.length || !note) {
+      return message.reply("Usage: !addnote <users> <note>");
+    }
+
+    const results = [];
+
+    for (const username of users) {
+      const user = await findUserRow(sheets, username);
+
+      if (!user) {
+        results.push(`${username}: not found`);
+        continue;
+      }
+
+      const currentRow = await getFullRow(sheets, user.sheetName, user.rowIndex);
+      const existingNote = currentRow[4] || "";
+
+      const newNote = existingNote
+        ? `${existingNote} | ${note}`
+        : note;
+
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: SPREADSHEET_ID,
+        range: `${user.sheetName}!H${user.rowIndex}`,
+        valueInputOption: "RAW",
+        requestBody: { values: [[newNote]] },
+      });
+
+      results.push(`${username}: note added`);
+    }
+
+    return message.reply(results.join("\n"));
   }
 });
 
